@@ -21,16 +21,28 @@ console = Console()
 @app.command()
 def ask(
     query: str = typer.Argument(..., help="The query or prompt to ask Jarvis"),
-    model: str = typer.Option("gpt-4o-mini", "--model", "-m", help="Model name"),
+    model: str | None = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Model name (defaults to OPENAI_MODEL_NAME or gpt-4o-mini)",
+    ),
     temperature: float = typer.Option(
         0.0, "--temperature", "-t", help="Sampling temperature"
     ),
 ) -> None:
     """Send a prompt through the LCEL pipeline with typewriter streaming output."""
+    chat_model = get_chat_model(
+        model_name=model,
+        temperature=temperature,
+        streaming=True,
+    )
+    actual_model = getattr(chat_model, "model_name", model or "gpt-4o-mini")
+
     console.print(
         Panel.fit(
             f"[bold cyan]Query:[/bold cyan] {query}\n"
-            f"[dim]Model: {model} | Temperature: {temperature}[/dim]",
+            f"[dim]Model: {actual_model} | Temperature: {temperature}[/dim]",
             title="Jarvis Agent Plus",
             border_style="cyan",
         )
@@ -38,11 +50,6 @@ def ask(
 
     prompt = create_chat_prompt(
         system_prompt="You are Jarvis Agent Plus, an expert AI assistant."
-    )
-    chat_model = get_chat_model(
-        model_name=model,
-        temperature=temperature,
-        streaming=True,
     )
     parser = get_string_parser()
     chain = compose_sequence(prompt, chat_model, parser)
