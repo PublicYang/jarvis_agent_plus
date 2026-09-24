@@ -3,8 +3,11 @@
 import os
 from typing import Any
 
+from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_openai import ChatOpenAI
+
+load_dotenv()
 
 
 def get_chat_model(
