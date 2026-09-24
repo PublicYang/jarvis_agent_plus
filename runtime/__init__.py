@@ -10,6 +10,10 @@ from runtime.runnables import (
     compose_sequence,
     make_lambda,
 )
+from runtime.streaming import (
+    astream_pipeline_events,
+    stream_text,
+)
 from runtime.tool_caller import (
     bind_model_tools,
     execute_tool_calls,
@@ -18,10 +22,12 @@ from runtime.tool_caller import (
 
 __all__: list[str] = [
     "assign_context",
+    "astream_pipeline_events",
     "bind_model_tools",
     "compose_parallel",
     "compose_sequence",
     "execute_tool_calls",
     "has_tool_calls",
     "make_lambda",
+    "stream_text",
 ]
