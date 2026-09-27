@@ -25,7 +25,7 @@ def get_chat_model(
     - OPENAI_API_KEY (default: "dummy-key-for-local-dev" if unset)
     - OPENAI_BASE_URL (optional)
     """
-    resolved_model = model_name or os.getenv("OPENAI_MODEL_NAME", "gpt-4o-mini")
+    resolved_model = model_name or os.getenv("OPENAI_MODEL_NAME") or "gpt-4o-mini"
     resolved_key = api_key or os.getenv("OPENAI_API_KEY") or "dummy-key-for-local-dev"
     resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
 
