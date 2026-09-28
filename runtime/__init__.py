@@ -4,6 +4,11 @@ Encapsulates LCEL chains, Runnable orchestration pipelines,
 and Mini-Agent execution loops.
 """
 
+from runtime.mini_agent import (
+    AgentStep,
+    AgentStepType,
+    MiniAgent,
+)
 from runtime.runnables import (
     assign_context,
     compose_parallel,
@@ -26,6 +31,9 @@ from runtime.tool_caller import (
 )
 
 __all__: list[str] = [
+    "AgentStep",
+    "AgentStepType",
+    "MiniAgent",
     "assign_context",
     "astream_pipeline_events",
     "bind_model_tools",

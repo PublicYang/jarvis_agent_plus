@@ -130,3 +130,44 @@ class InMemoryHistoryStore:
     def reset_all(self) -> None:
         """Reset all sessions."""
         self._store.clear()
+
+
+class FileHistoryStore:
+    """Session store backed by local JSON files."""
+
+    def __init__(
+        self,
+        storage_dir: str | Path = ".sessions",
+        max_messages_per_session: int | None = None,
+    ) -> None:
+        self.storage_dir = Path(storage_dir)
+        self.max_messages_per_session = max_messages_per_session
+
+    def get_history(self, session_id: str) -> FileChatMessageHistory:
+        """Get or create file-backed chat history for the given session_id."""
+        return FileChatMessageHistory(
+            session_id=session_id,
+            storage_dir=self.storage_dir,
+            max_messages=self.max_messages_per_session,
+        )
+
+    def clear_session(self, session_id: str) -> bool:
+        """Clear messages for a specific session."""
+        target = self.storage_dir / f"{session_id}.json"
+        if target.exists():
+            target.unlink()
+            return True
+        return False
+
+    def list_sessions(self) -> list[str]:
+        """Return all active stored session IDs."""
+        if not self.storage_dir.exists():
+            return []
+        return [f.stem for f in self.storage_dir.glob("*.json")]
+
+    def reset_all(self) -> None:
+        """Clear all stored sessions."""
+        if self.storage_dir.exists():
+            for f in self.storage_dir.glob("*.json"):
+                f.unlink()
+
