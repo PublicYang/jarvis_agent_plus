@@ -206,6 +206,26 @@ def test_mini_agent_runnable_interface() -> None:
 
     # Streaming chunks
     chunks = list(agent.stream({"input": "test streaming"}))
-    assert len(chunks) == 1
-    assert chunks[0].step_type == AgentStepType.FINAL_ANSWER
-    assert chunks[0].content == "Runnable invocation output."
+    step_types = [c.step_type for c in chunks]
+    assert AgentStepType.TOKEN in step_types
+    assert AgentStepType.FINAL_ANSWER in step_types
+    final_step = [c for c in chunks if c.step_type == AgentStepType.FINAL_ANSWER][0]
+    assert final_step.content == "Runnable invocation output."
+
+
+def test_mini_agent_token_streaming() -> None:
+    """Verify MiniAgent yields real-time tokens during response generation."""
+    model = ScriptedChatModel(
+        scripted_responses=[
+            AIMessage(content="Streaming token response verification.")
+        ]
+    )
+    agent = MiniAgent(model=model, tools=[calculator])
+
+    tokens = [
+        step.content
+        for step in agent.stream_run("Test query")
+        if step.step_type == AgentStepType.TOKEN
+    ]
+    assert len(tokens) > 0
+    assert "".join(tokens) == "Streaming token response verification."

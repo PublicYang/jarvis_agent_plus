@@ -18,20 +18,55 @@ app = typer.Typer(
 console = Console()
 
 
-def _render_step(step: AgentStep) -> None:
-    """Helper to render agent steps to the console."""
-    if step.step_type == AgentStepType.THOUGHT:
-        console.print(f"[dim italic]Thinking: {step.content}[/dim italic]")
-    elif step.step_type == AgentStepType.TOOL_CALL:
-        name = step.metadata.get("name", "unknown")
-        args = step.metadata.get("args", {})
-        console.print(f"[bold blue]Action:[/bold blue] {name}({args})")
-    elif step.step_type == AgentStepType.OBSERVATION:
-        console.print(f"[dim cyan]Observation:[/dim cyan] {step.content}")
-    elif step.step_type == AgentStepType.FINAL_ANSWER:
-        console.print(f"[bold green]Jarvis:[/bold green] {step.content}")
-    elif step.step_type == AgentStepType.MAX_ITERATIONS:
-        console.print(f"[bold red]Warning:[/bold red] {step.content}")
+class StepRenderer:
+    """Helper to render agent execution events and real-time streaming tokens."""
+
+    def __init__(self, console: Console) -> None:
+        self.console = console
+        self.in_token_stream = False
+        self.has_printed_tokens = False
+
+    def render(self, step: AgentStep) -> None:
+        """Render a single AgentStep to the terminal."""
+        if step.step_type == AgentStepType.TOKEN:
+            if not self.in_token_stream:
+                self.console.print("[bold green]Jarvis:[/bold green] ", end="")
+                self.in_token_stream = True
+                self.has_printed_tokens = True
+            print(step.content, end="", flush=True)
+
+        elif step.step_type == AgentStepType.THOUGHT:
+            if self.in_token_stream:
+                print()
+                self.in_token_stream = False
+            self.console.print(f"[dim italic]Thinking: {step.content}[/dim italic]")
+
+        elif step.step_type == AgentStepType.TOOL_CALL:
+            if self.in_token_stream:
+                print()
+                self.in_token_stream = False
+            name = step.metadata.get("name", "unknown")
+            args = step.metadata.get("args", {})
+            self.console.print(f"[bold blue]Action:[/bold blue] {name}({args})")
+
+        elif step.step_type == AgentStepType.OBSERVATION:
+            if self.in_token_stream:
+                print()
+                self.in_token_stream = False
+            self.console.print(f"[dim cyan]Observation:[/dim cyan] {step.content}")
+
+        elif step.step_type == AgentStepType.FINAL_ANSWER:
+            if self.in_token_stream:
+                print()
+                self.in_token_stream = False
+            elif not self.has_printed_tokens:
+                self.console.print(f"[bold green]Jarvis:[/bold green] {step.content}")
+
+        elif step.step_type == AgentStepType.MAX_ITERATIONS:
+            if self.in_token_stream:
+                print()
+                self.in_token_stream = False
+            self.console.print(f"[bold red]Warning:[/bold red] {step.content}")
 
 
 @app.command()
@@ -56,11 +91,11 @@ def ask(
         5, "--max-iterations", help="Maximum ReAct reasoning steps"
     ),
 ) -> None:
-    """Send a prompt to the MiniAgent with tools and persistent memory."""
+    """Send a prompt to the MiniAgent with tools, streaming and persistent memory."""
     chat_model = get_chat_model(
         model_name=model,
         temperature=temperature,
-        streaming=False,
+        streaming=True,
     )
     actual_model = getattr(chat_model, "model_name", model or "gpt-4o-mini")
 
@@ -82,9 +117,10 @@ def ask(
         history_store=store,
     )
 
+    renderer = StepRenderer(console)
     try:
         for step in agent.stream_run(query, session_id=session_id):
-            _render_step(step)
+            renderer.render(step)
     except Exception as exc:
         console.print(f"\n[bold red]Error running agent:[/bold red] {exc}")
         console.print(
@@ -116,11 +152,11 @@ def chat(
         5, "--max-iterations", help="Maximum ReAct reasoning steps per turn"
     ),
 ) -> None:
-    """Start an interactive multi-turn session with MiniAgent, tools and memory."""
+    """Start an interactive session with MiniAgent, tools, streaming and memory."""
     chat_model = get_chat_model(
         model_name=model,
         temperature=temperature,
-        streaming=False,
+        streaming=True,
     )
     actual_model = getattr(chat_model, "model_name", model or "gpt-4o-mini")
 
@@ -164,9 +200,10 @@ def chat(
             console.print("[yellow]Session history cleared.[/yellow]")
             continue
 
+        renderer = StepRenderer(console)
         try:
             for step in agent.stream_run(cleaned, session_id=session_id):
-                _render_step(step)
+                renderer.render(step)
         except Exception as exc:
             console.print(f"\n[bold red]Error running agent:[/bold red] {exc}")
             console.print(

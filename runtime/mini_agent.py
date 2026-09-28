@@ -9,6 +9,7 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage,
     SystemMessage,
@@ -25,6 +26,7 @@ class AgentStepType(StrEnum):
     THOUGHT = "thought"
     TOOL_CALL = "tool_call"
     OBSERVATION = "observation"
+    TOKEN = "token"
     FINAL_ANSWER = "final_answer"
     MAX_ITERATIONS = "max_iterations"
 
@@ -74,7 +76,7 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
         query: str,
         session_id: str | None = None,
     ) -> Iterator[AgentStep]:
-        """Execute ReAct loop yielding step-by-step trace events."""
+        """Execute ReAct loop yielding trace events and real-time streaming tokens."""
         history: BaseChatMessageHistory | None = None
         prior_messages: list[BaseMessage] = []
 
@@ -90,9 +92,47 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
 
         while iterations < self.max_iterations:
             iterations += 1
-            ai_message = self.bound_model.invoke(messages)
-            if not isinstance(ai_message, AIMessage):
-                ai_message = AIMessage(content=str(ai_message))
+
+            full_chunk: Any = None
+            is_tool_call_round = False
+
+            for chunk in self.bound_model.stream(messages):
+                if full_chunk is None:
+                    full_chunk = chunk
+                elif isinstance(full_chunk, AIMessageChunk) and isinstance(
+                    chunk, AIMessageChunk
+                ):
+                    full_chunk = full_chunk + chunk
+                else:
+                    new_content = str(full_chunk.content) + str(chunk.content)
+                    new_tool_calls = list(
+                        getattr(full_chunk, "tool_calls", [])
+                    ) + list(getattr(chunk, "tool_calls", []))
+                    full_chunk = AIMessage(
+                        content=new_content, tool_calls=new_tool_calls
+                    )
+
+                if getattr(chunk, "tool_call_chunks", None) or getattr(
+                    chunk, "tool_calls", None
+                ):
+                    is_tool_call_round = True
+
+                # If this turn is generating final answer text, emit real-time tokens
+                if not is_tool_call_round and chunk.content:
+                    yield AgentStep(
+                        step_type=AgentStepType.TOKEN,
+                        content=str(chunk.content),
+                    )
+
+            if full_chunk is None:
+                full_chunk = AIMessage(content="")
+            elif not isinstance(full_chunk, AIMessage):
+                full_chunk = AIMessage(
+                    content=str(getattr(full_chunk, "content", full_chunk)),
+                    tool_calls=getattr(full_chunk, "tool_calls", []),
+                )
+
+            ai_message = full_chunk
 
             if has_tool_calls(ai_message):
                 if ai_message.content:
