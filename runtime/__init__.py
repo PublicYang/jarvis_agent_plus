@@ -10,6 +10,11 @@ from runtime.runnables import (
     compose_sequence,
     make_lambda,
 )
+from runtime.stateful_chain import (
+    create_stateful_chain,
+    invoke_with_session,
+    stream_with_session,
+)
 from runtime.streaming import (
     astream_pipeline_events,
     stream_text,
@@ -26,8 +31,11 @@ __all__: list[str] = [
     "bind_model_tools",
     "compose_parallel",
     "compose_sequence",
+    "create_stateful_chain",
     "execute_tool_calls",
     "has_tool_calls",
+    "invoke_with_session",
     "make_lambda",
     "stream_text",
+    "stream_with_session",
 ]
