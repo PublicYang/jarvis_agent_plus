@@ -13,6 +13,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage,
     SystemMessage,
+    ToolMessage,
 )
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
@@ -52,7 +53,9 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
         model: BaseChatModel,
         tools: Sequence[BaseTool],
         system_prompt: str = (
-            "You are Jarvis Agent Plus, an expert AI assistant equipped with tools."
+            "You are Jarvis Agent Plus, an expert AI assistant equipped with tools. "
+            "When you need to use tools, call the tools directly without generating "
+            "conversational filler or explanatory text beforehand."
         ),
         max_iterations: int = 5,
         history_store: Any | None = None,
@@ -95,6 +98,14 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
 
             full_chunk: Any = None
             is_tool_call_round = False
+            token_buffer: list[str] = []
+            has_emitted_tokens = False
+            has_emitted_thought = False
+
+            # If messages already contain tool results, the agent is synthesizing
+            # the final response; no buffer delay is needed.
+            has_tool_context = any(isinstance(m, ToolMessage) for m in messages)
+            buffer_char_limit = 0 if has_tool_context else 35
 
             for chunk in self.bound_model.stream(messages):
                 if full_chunk is None:
@@ -116,13 +127,46 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
                     chunk, "tool_calls", None
                 ):
                     is_tool_call_round = True
+                    # Immediately emit any buffered preamble as THOUGHT so the user
+                    # gets instant visual feedback (<0.3s) without waiting.
+                    if token_buffer and not has_emitted_thought:
+                        thought_text = "".join(token_buffer).strip()
+                        if thought_text:
+                            yield AgentStep(
+                                step_type=AgentStepType.THOUGHT,
+                                content=thought_text,
+                            )
+                            has_emitted_thought = True
+                    token_buffer.clear()
 
-                # If this turn is generating final answer text, emit real-time tokens
                 if not is_tool_call_round and chunk.content:
+                    if has_emitted_tokens or buffer_char_limit == 0:
+                        yield AgentStep(
+                            step_type=AgentStepType.TOKEN,
+                            content=str(chunk.content),
+                        )
+                        has_emitted_tokens = True
+                    else:
+                        token_buffer.append(str(chunk.content))
+                        if sum(len(t) for t in token_buffer) >= buffer_char_limit:
+                            for t in token_buffer:
+                                yield AgentStep(
+                                    step_type=AgentStepType.TOKEN,
+                                    content=t,
+                                )
+                            token_buffer.clear()
+                            has_emitted_tokens = True
+
+            # If stream finished and this round had no tool calls,
+            # flush any remaining buffered tokens
+            if not is_tool_call_round and token_buffer:
+                for t in token_buffer:
                     yield AgentStep(
                         step_type=AgentStepType.TOKEN,
-                        content=str(chunk.content),
+                        content=t,
                     )
+                token_buffer.clear()
+                has_emitted_tokens = True
 
             if full_chunk is None:
                 full_chunk = AIMessage(content="")
@@ -135,7 +179,11 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
             ai_message = full_chunk
 
             if has_tool_calls(ai_message):
-                if ai_message.content:
+                if (
+                    ai_message.content
+                    and not has_emitted_thought
+                    and not has_emitted_tokens
+                ):
                     yield AgentStep(
                         step_type=AgentStepType.THOUGHT,
                         content=str(ai_message.content),

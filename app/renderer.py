@@ -26,12 +26,14 @@ class StepRenderer:
             if self.in_token_stream:
                 print()
                 self.in_token_stream = False
+            self.has_printed_tokens = False
             self.console.print(f"[dim italic]Thinking: {step.content}[/dim italic]")
 
         elif step.step_type == AgentStepType.TOOL_CALL:
             if self.in_token_stream:
                 print()
                 self.in_token_stream = False
+            self.has_printed_tokens = False
             name = step.metadata.get("name", "unknown")
             args = step.metadata.get("args", {})
             self.console.print(f"[bold blue]Action:[/bold blue] {name}({args})")

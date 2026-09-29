@@ -1,6 +1,7 @@
 """Tests for terminal StepRenderer formatting and stream states."""
 
 from io import StringIO
+
 from rich.console import Console
 
 from app.renderer import StepRenderer
@@ -8,7 +9,7 @@ from runtime import AgentStep, AgentStepType
 
 
 def test_step_renderer_tokens_and_transitions(capsys) -> None:
-    """Verify StepRenderer handles token streaming and line breaks on state transitions."""
+    """Verify StepRenderer handles tokens and state transitions."""
     string_io = StringIO()
     console = Console(file=string_io, color_system=None)
     renderer = StepRenderer(console)
@@ -20,7 +21,9 @@ def test_step_renderer_tokens_and_transitions(capsys) -> None:
     assert renderer.has_printed_tokens is True
 
     # 2. Transition to THOUGHT should close the line with a newline
-    renderer.render(AgentStep(step_type=AgentStepType.THOUGHT, content="Need calculation"))
+    renderer.render(
+        AgentStep(step_type=AgentStepType.THOUGHT, content="Need calculation")
+    )
     assert renderer.in_token_stream is False
 
     # 3. Transition to TOOL_CALL
@@ -36,10 +39,16 @@ def test_step_renderer_tokens_and_transitions(capsys) -> None:
     renderer.render(AgentStep(step_type=AgentStepType.OBSERVATION, content="4"))
 
     # 5. Transition to FINAL_ANSWER
-    renderer.render(AgentStep(step_type=AgentStepType.FINAL_ANSWER, content="Result is 4"))
+    renderer.render(
+        AgentStep(step_type=AgentStepType.FINAL_ANSWER, content="Result is 4")
+    )
 
     # 6. MAX_ITERATIONS warning
-    renderer.render(AgentStep(step_type=AgentStepType.MAX_ITERATIONS, content="Loop limit reached"))
+    renderer.render(
+        AgentStep(
+            step_type=AgentStepType.MAX_ITERATIONS, content="Loop limit reached"
+        )
+    )
 
     captured = capsys.readouterr()
     stdout_text = captured.out

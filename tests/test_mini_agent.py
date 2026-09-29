@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
 from memory import FileHistoryStore
 from runtime import AgentStepType, MiniAgent
@@ -229,3 +229,100 @@ def test_mini_agent_token_streaming() -> None:
     ]
     assert len(tokens) > 0
     assert "".join(tokens) == "Streaming token response verification."
+
+
+class StreamingScriptedChatModel(BaseChatModel):
+    """A mock chat model that streams chunks sequentially across turns."""
+
+    chunk_sequences: list[list[AIMessageChunk]] = []
+    current_idx: int = 0
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        chunks = self.chunk_sequences[self.current_idx]
+        self.current_idx += 1
+        full_msg = chunks[0]
+        for c in chunks[1:]:
+            full_msg = full_msg + c
+        return ChatResult(generations=[ChatGeneration(message=full_msg)])
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> Any:
+        chunks = self.chunk_sequences[self.current_idx]
+        self.current_idx += 1
+        for c in chunks:
+            yield ChatGenerationChunk(message=c)
+
+    @property
+    def _llm_type(self) -> str:
+        return "streaming_scripted_mock"
+
+    def bind_tools(self, tools: Sequence[Any], **kwargs: Any) -> Any:
+        return self
+
+
+def test_mini_agent_pre_tool_thought_no_duplicate_token() -> None:
+    """Verify preamble preceding tool calls is treated as THOUGHT and not TOKEN."""
+    preamble_text = "好的，我先查看系统环境信息"
+    final_text = "Windows系统信息已成功获取。"
+
+    model = StreamingScriptedChatModel(
+        chunk_sequences=[
+            # Turn 1: text preamble chunk followed by tool call chunk
+            [
+                AIMessageChunk(content=preamble_text),
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "get_system_info",
+                            "args": '{"query_type": "os"}',
+                            "id": "call_sys_1",
+                            "index": 0,
+                        }
+                    ],
+                ),
+            ],
+            # Turn 2: final answer stream
+            [
+                AIMessageChunk(content=final_text),
+            ],
+        ]
+    )
+
+    agent = MiniAgent(model=model, tools=[get_system_info])
+    steps = list(agent.stream_run("查询系统信息"))
+
+    # Preamble should be emitted as THOUGHT, NOT as TOKEN
+    thought_steps = [s for s in steps if s.step_type == AgentStepType.THOUGHT]
+    token_steps = [s for s in steps if s.step_type == AgentStepType.TOKEN]
+    tool_steps = [s for s in steps if s.step_type == AgentStepType.TOOL_CALL]
+    obs_steps = [s for s in steps if s.step_type == AgentStepType.OBSERVATION]
+    final_steps = [s for s in steps if s.step_type == AgentStepType.FINAL_ANSWER]
+
+    # Verify THOUGHT received the preamble
+    assert len(thought_steps) == 1
+    assert thought_steps[0].content == preamble_text
+
+    # Verify preamble was NOT leaked in TOKEN
+    token_contents = [t.content for t in token_steps]
+    assert preamble_text not in token_contents
+
+    # Verify tool was called and observed
+    assert len(tool_steps) == 1
+    assert len(obs_steps) == 1
+
+    # Verify final answer tokens and final answer step
+    assert final_text in "".join(token_contents)
+    assert len(final_steps) == 1
+    assert final_steps[0].content == final_text
