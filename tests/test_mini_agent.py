@@ -326,3 +326,37 @@ def test_mini_agent_pre_tool_thought_no_duplicate_token() -> None:
     assert final_text in "".join(token_contents)
     assert len(final_steps) == 1
     assert final_steps[0].content == final_text
+
+
+def test_mini_agent_pure_tool_call_generates_thought() -> None:
+    """Verify when model returns pure tool calls with empty content,
+    THOUGHT is still generated."""
+    model = StreamingScriptedChatModel(
+        chunk_sequences=[
+            # Turn 1: pure tool call with NO text content
+            [
+                AIMessageChunk(
+                    content="",
+                    tool_call_chunks=[
+                        {
+                            "name": "calculator",
+                            "args": '{"expression": "10 * 10"}',
+                            "id": "calc_call_1",
+                            "index": 0,
+                        }
+                    ],
+                ),
+            ],
+            # Turn 2: final answer
+            [
+                AIMessageChunk(content="10 * 10 = 100"),
+            ],
+        ]
+    )
+
+    agent = MiniAgent(model=model, tools=[calculator])
+    steps = list(agent.stream_run("计算 10*10"))
+
+    thought_steps = [s for s in steps if s.step_type == AgentStepType.THOUGHT]
+    assert len(thought_steps) == 1
+    assert "calculator" in thought_steps[0].content

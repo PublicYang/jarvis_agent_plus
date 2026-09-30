@@ -54,8 +54,8 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
         tools: Sequence[BaseTool],
         system_prompt: str = (
             "You are Jarvis Agent Plus, an expert AI assistant equipped with tools. "
-            "When you need to use tools, call the tools directly without generating "
-            "conversational filler or explanatory text beforehand."
+            "在决定调用任何工具前，请必须先简要说明你的思考过程或执行计划（Thought），"
+            "然后发起工具调用。"
         ),
         max_iterations: int = 5,
         history_store: Any | None = None,
@@ -99,13 +99,14 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
             full_chunk: Any = None
             is_tool_call_round = False
             token_buffer: list[str] = []
+            reasoning_buffer: list[str] = []
             has_emitted_tokens = False
             has_emitted_thought = False
 
             # If messages already contain tool results, the agent is synthesizing
             # the final response; no buffer delay is needed.
             has_tool_context = any(isinstance(m, ToolMessage) for m in messages)
-            buffer_char_limit = 0 if has_tool_context else 35
+            buffer_char_limit = 0 if has_tool_context else 100
 
             for chunk in self.bound_model.stream(messages):
                 if full_chunk is None:
@@ -123,14 +124,24 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
                         content=new_content, tool_calls=new_tool_calls
                     )
 
+                # Capture reasoning_content from DeepSeek/reasoner models if present
+                delta_reasoning = getattr(chunk, "additional_kwargs", {}).get(
+                    "reasoning_content"
+                )
+                if delta_reasoning:
+                    reasoning_buffer.append(str(delta_reasoning))
+
                 if getattr(chunk, "tool_call_chunks", None) or getattr(
                     chunk, "tool_calls", None
                 ):
                     is_tool_call_round = True
-                    # Immediately emit any buffered preamble as THOUGHT so the user
-                    # gets instant visual feedback (<0.3s) without waiting.
-                    if token_buffer and not has_emitted_thought:
-                        thought_text = "".join(token_buffer).strip()
+                    # Immediately emit any buffered preamble or reasoning as THOUGHT
+                    # so the user gets instant visual feedback (<0.3s) without waiting.
+                    if not has_emitted_thought:
+                        thought_text = (
+                            "".join(reasoning_buffer).strip()
+                            or "".join(token_buffer).strip()
+                        )
                         if thought_text:
                             yield AgentStep(
                                 step_type=AgentStepType.THOUGHT,
@@ -179,15 +190,28 @@ class MiniAgent(Runnable[dict[str, Any] | str, str]):
             ai_message = full_chunk
 
             if has_tool_calls(ai_message):
-                if (
-                    ai_message.content
-                    and not has_emitted_thought
-                    and not has_emitted_tokens
-                ):
+                if not has_emitted_thought and not has_emitted_tokens:
+                    thought_text = (
+                        "".join(reasoning_buffer).strip()
+                        or str(getattr(ai_message, "content", "")).strip()
+                        or str(
+                            ai_message.additional_kwargs.get(
+                                "reasoning_content", ""
+                            )
+                        ).strip()
+                    )
+                    if not thought_text:
+                        tool_names = [
+                            tc.get("name", "tool") for tc in ai_message.tool_calls
+                        ]
+                        thought_text = (
+                            f"准备调用工具 {', '.join(tool_names)} 执行任务。"
+                        )
                     yield AgentStep(
                         step_type=AgentStepType.THOUGHT,
-                        content=str(ai_message.content),
+                        content=thought_text,
                     )
+                    has_emitted_thought = True
 
                 for tc in ai_message.tool_calls:
                     yield AgentStep(
