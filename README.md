@@ -1,5 +1,9 @@
 # AgentFlow
 
+<p align="center">
+  <b>简体中文</b> | <a href="README_en.md">English</a>
+</p>
+
 > 基于 LangChain LCEL 核心原语构建的轻量级单智能体（Single-Agent）ReAct 运行时框架与工程参考实现。
 
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
